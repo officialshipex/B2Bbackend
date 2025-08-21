@@ -14,16 +14,21 @@ const createShiprocketCargoOrder = async (req, res) => {
     // Fetch order, user, and wallet
     const currentOrder = await Order.findById(id);
     if (!currentOrder) {
-      return res.status(404).json({ success: false, message: "Order not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "Order not found" });
     }
 
     const currentUser = await User.findById(currentOrder.userId);
     const currentWallet = await Wallet.findById(currentUser.Wallet);
 
     // Check wallet balance
-    const effectiveBalance = currentWallet.balance - (currentWallet.holdAmount || 0);
+    const effectiveBalance =
+      currentWallet.balance - (currentWallet.holdAmount || 0);
     if (effectiveBalance < finalCharges) {
-      return res.status(400).json({ success: false, message: "Insufficient Wallet Balance" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Insufficient Wallet Balance" });
     }
 
     // Refresh Shiprocket token
@@ -34,6 +39,17 @@ const createShiprocketCargoOrder = async (req, res) => {
         message: "Failed to refresh Shiprocket token",
       });
     }
+
+    const totalUnits = currentOrder.packageDetails.reduce((sum, product) => {
+      return sum + (product.noOfBox || 0);
+    }, 0);
+
+    const productQuantity = currentOrder.productDetails.reduce((sum, prod) => {
+      return sum + (prod.quantity || 0);
+    }, 0);
+
+    console.log("Total units in package details:", totalUnits);
+    console.log("Total quantity in productDetails:", productQuantity);
 
     // Build the order creation payload
     const payload = {
@@ -49,8 +65,10 @@ const createShiprocketCargoOrder = async (req, res) => {
       source_city: currentOrder.pickupAddress.city,
       source_state: currentOrder.pickupAddress.state,
       sender_contact_person_name: currentOrder.pickupAddress.contactName,
-      sender_contact_person_email: currentUser.email || "sender_contact_person_email@gmail.com",
-      sender_contact_person_contact_no: currentOrder.pickupAddress.phoneNumber || "9999999999",
+      sender_contact_person_email:
+        currentUser.email || "sender_contact_person_email@gmail.com",
+      sender_contact_person_contact_no:
+        currentOrder.pickupAddress.phoneNumber || "9999999999",
       destination_warehouse_name: "Kulla District 2",
       destination_address_line1: currentOrder.receiverAddress.address,
       destination_address_line2: "",
@@ -58,8 +76,11 @@ const createShiprocketCargoOrder = async (req, res) => {
       destination_city: currentOrder.receiverAddress.city,
       destination_state: currentOrder.receiverAddress.state,
       recipient_contact_person_name: currentOrder.receiverAddress.contactName,
-      recipient_contact_person_email: currentOrder.receiverAddress.email || "recipient_contact_person_email@gmail.com",
-      recipient_contact_person_contact_no: currentOrder.receiverAddress.phoneNumber,
+      recipient_contact_person_email:
+        currentOrder.receiverAddress.email ||
+        "recipient_contact_person_email@gmail.com",
+      recipient_contact_person_contact_no:
+        currentOrder.receiverAddress.phoneNumber,
       client_id: process.env.SHIPROCKET_CLIENT_ID,
       packaging_unit_details: currentOrder.packageDetails.map((product) => ({
         units: product.noOfBox,
@@ -71,7 +92,10 @@ const createShiprocketCargoOrder = async (req, res) => {
       recipient_GST: null,
       supporting_docs: [],
       is_cod: currentOrder.paymentDetails.method === "COD",
-      cod_amount: currentOrder.paymentDetails.method === "COD" ? currentOrder.paymentDetails.amount : 0,
+      cod_amount:
+        currentOrder.paymentDetails.method === "COD"
+          ? currentOrder.paymentDetails.amount
+          : 0,
       mode_name: "surface",
       tenant_id: process.env.SHIPROCKET_CLIENT_ID,
       channel_partner: null,
@@ -88,7 +112,7 @@ const createShiprocketCargoOrder = async (req, res) => {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
-        }
+        },
       }
     );
 
@@ -128,8 +152,12 @@ const createShiprocketCargoOrder = async (req, res) => {
     const pickupDate = new Date(Date.now() + 2 * 60 * 60 * 1000);
     const pad = (n) => n.toString().padStart(2, "0");
     const pickupDateTimeStr =
-      `${pickupDate.getFullYear()}-${pad(pickupDate.getMonth() + 1)}-${pad(pickupDate.getDate())} ` +
-      `${pad(pickupDate.getHours())}:${pad(pickupDate.getMinutes())}:${pad(pickupDate.getSeconds())}`;
+      `${pickupDate.getFullYear()}-${pad(pickupDate.getMonth() + 1)}-${pad(
+        pickupDate.getDate()
+      )} ` +
+      `${pad(pickupDate.getHours())}:${pad(pickupDate.getMinutes())}:${pad(
+        pickupDate.getSeconds()
+      )}`;
 
     const associationPayload = {
       client_id: process.env.SHIPROCKET_CLIENT_ID,
@@ -142,7 +170,8 @@ const createShiprocketCargoOrder = async (req, res) => {
       pickup_date_time: pickupDateTimeStr,
       eway_bill_no: currentOrder.ewayBillNo || "",
       invoice_value: currentOrder.paymentDetails.amount,
-      invoice_number: currentOrder.invoiceNumber || `INV-${currentOrder.orderId}`,
+      invoice_number:
+        currentOrder.invoiceNumber || `INV-${currentOrder.orderId}`,
       invoice_date: currentOrder.invoiceDate
         ? new Date(currentOrder.invoiceDate).toISOString().slice(0, 10)
         : new Date().toISOString().slice(0, 10),
@@ -157,7 +186,7 @@ const createShiprocketCargoOrder = async (req, res) => {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
-        }
+        },
       }
     );
 
@@ -176,7 +205,8 @@ const createShiprocketCargoOrder = async (req, res) => {
     // 6. Immediately respond (no waybill yet)
     res.status(201).json({
       success: true,
-      message: "Shiprocket Cargo Order Created & Shipment Associated Successfully",
+      message:
+        "Shiprocket Cargo Order Created & Shipment Associated Successfully",
       data: {
         orderId: currentOrder.orderId,
         order_id: response.data.order_id,
@@ -192,7 +222,9 @@ const createShiprocketCargoOrder = async (req, res) => {
         // Refresh token - get a new token because accessToken might expire
         const token = await refreshShiprocketCargoToken();
         if (!token) {
-          console.error("Failed to refresh Shiprocket token for delayed waybill fetch.");
+          console.error(
+            "Failed to refresh Shiprocket token for delayed waybill fetch."
+          );
           return;
         }
 
@@ -202,31 +234,54 @@ const createShiprocketCargoOrder = async (req, res) => {
             headers: {
               Authorization: `Bearer ${token}`,
               "Content-Type": "application/json",
-            }
+            },
           }
         );
-        console.log("Shipment details response after 30s:", shipmentDetailsResponse.data);
+        console.log(
+          "Shipment details response after 30s:",
+          shipmentDetailsResponse.data
+        );
         if (
           shipmentDetailsResponse.data &&
           shipmentDetailsResponse.data.waybill_no
         ) {
           const waybill = shipmentDetailsResponse.data.waybill_no;
+          const childWaybill = shipmentDetailsResponse.data.child_waybill_nos;
+          const partner = shipmentDetailsResponse.data.delivery_partner || {};
+          const labelUrl =
+            shipmentDetailsResponse.data.label_url ||
+            shipmentDetailsResponse.data.labelUrl ||
+            "";
 
-          // Update the order with waybill_no
+          // Update the order with waybill_no, child_awb_numbers, delivery partner, label url
           const orderToUpdate = await Order.findById(id);
           if (orderToUpdate) {
             orderToUpdate.awb_number = waybill;
+            orderToUpdate.child_awb_numbers = childWaybill || [];
+            orderToUpdate.deliveryPartner = {
+              name: partner.name || "",
+              commonName: partner.common_name || "",
+              logo: partner.logo || "",
+            };
+            orderToUpdate.labelUrl = labelUrl;
+
             await orderToUpdate.save();
-            console.log(`Waybill_no updated for order ${orderToUpdate.orderId}: ${waybill}`);
+            console.log(
+              `Waybill_no updated for order ${orderToUpdate.orderId}: ${waybill}`
+            );
           }
         } else {
-          console.log(`Waybill_no not yet available for shipment_id ${associationRes.data.id} after 30s.`);
+          console.log(
+            `Waybill_no not yet available for shipment_id ${associationRes.data.id} after 30s.`
+          );
         }
       } catch (err) {
-        console.error("Error fetching/updating waybill_no after 30s:", err.message);
+        console.error(
+          "Error fetching/updating waybill_no after 30s:",
+          err.message
+        );
       }
     }, 30000); // 30 seconds delay
-
   } catch (error) {
     console.error(
       "Error in createShiprocketCargoOrder:",
@@ -234,12 +289,13 @@ const createShiprocketCargoOrder = async (req, res) => {
     );
     return res.status(500).json({
       success: false,
-      message: "Failed to create Shiprocket Cargo order",
-      error: error?.response?.data || error.message,
+      message:
+        error?.response?.data?.non_field_errors ||
+        "Failed to create Shiprocket Cargo order",
+      error: error?.response?.data?.non_field_errors || error.message,
     });
   }
 };
-
 
 const calculateShiprocketCargoCharges = async (req, res) => {
   try {
@@ -277,7 +333,9 @@ const calculateShiprocketCargoCharges = async (req, res) => {
     // 3. Refresh Shiprocket Token
     const accessToken = await refreshShiprocketCargoToken();
     if (!accessToken) {
-      return res.status(500).json({ message: "Failed to refresh access token" });
+      return res
+        .status(500)
+        .json({ message: "Failed to refresh access token" });
     }
 
     // 4. Prepare payload
@@ -368,8 +426,14 @@ const calculateShiprocketCargoCharges = async (req, res) => {
     };
 
     // 8. Apply markup to both surface and air if available
-    applyPlanMarkup(response.data["Smart Cargo Advantage-surface"], planMarkupPercent);
-    applyPlanMarkup(response.data["Smart Cargo Advantage-air"], planMarkupPercent);
+    applyPlanMarkup(
+      response.data["Smart Cargo Advantage-surface"],
+      planMarkupPercent
+    );
+    applyPlanMarkup(
+      response.data["Smart Cargo Advantage-air"],
+      planMarkupPercent
+    );
 
     // 9. Prepare updated rates array
     const updatedRates = [];
@@ -377,11 +441,15 @@ const calculateShiprocketCargoCharges = async (req, res) => {
       updatedRates.push({
         provider: "Shiprocket",
         courierServiceName:
-          response.data["Smart Cargo Advantage-surface"].common_name || "Smart Cargo Advantage-surface",
+          response.data["Smart Cargo Advantage-surface"].common_name ||
+          "Smart Cargo Advantage-surface",
         courierType: "surface",
         courier:
-          response.data["Smart Cargo Advantage-surface"].delivery_partner || "Smart Cargo",
-        rate: response.data["Smart Cargo Advantage-surface"].working.grand_total || 0,
+          response.data["Smart Cargo Advantage-surface"].delivery_partner ||
+          "Smart Cargo",
+        rate:
+          response.data["Smart Cargo Advantage-surface"].working.grand_total ||
+          0,
         details: response.data["Smart Cargo Advantage-surface"],
       });
     }
@@ -389,11 +457,14 @@ const calculateShiprocketCargoCharges = async (req, res) => {
       updatedRates.push({
         provider: "Shiprocket",
         courierServiceName:
-          response.data["Smart Cargo Advantage-air"].common_name || "Smart Cargo Advantage-air",
+          response.data["Smart Cargo Advantage-air"].common_name ||
+          "Smart Cargo Advantage-air",
         courierType: "air",
         courier:
-          response.data["Smart Cargo Advantage-air"].delivery_partner || "Smart Cargo",
-        rate: response.data["Smart Cargo Advantage-air"].working.grand_total || 0,
+          response.data["Smart Cargo Advantage-air"].delivery_partner ||
+          "Smart Cargo",
+        rate:
+          response.data["Smart Cargo Advantage-air"].working.grand_total || 0,
         details: response.data["Smart Cargo Advantage-air"],
       });
     }
@@ -424,7 +495,9 @@ const calculateShiprocketCharges = async (req, res) => {
     const accessToken = await refreshShiprocketCargoToken();
 
     if (!accessToken) {
-      return res.status(500).json({ message: "Failed to refresh Shiprocket access token." });
+      return res
+        .status(500)
+        .json({ message: "Failed to refresh Shiprocket access token." });
     }
 
     // Extract request data
@@ -524,50 +597,55 @@ const calculateShiprocketCharges = async (req, res) => {
     console.log("Shiprocket Charges Response:", response.data);
 
     // Fields on which to apply plan markup
-const fieldsToMarkup = [
-  "rate",
-  "freight",
-  "handling_charges",
-  "oda",
-  "fsc",
-  "awb_charges",
-  "rov",
-  "cod_charges",
-  "fm_charges",
-];
+    const fieldsToMarkup = [
+      "rate",
+      "freight",
+      "handling_charges",
+      "oda",
+      "fsc",
+      "awb_charges",
+      "rov",
+      "cod_charges",
+      "fm_charges",
+    ];
 
-const applyPlanMarkup = (service, planMarkupPercent) => {
-  if (!service || !service.working) return;
+    const applyPlanMarkup = (service, planMarkupPercent) => {
+      if (!service || !service.working) return;
 
-  const w = service.working;
+      const w = service.working;
 
-  // 1️⃣ Apply markup to allowed fields
-  fieldsToMarkup.forEach((field) => {
-    if (typeof w[field] === "number" && w[field] > 0) {
-      const markupAmount = planMarkupPercent
-        ? w[field] * (planMarkupPercent / 100)
-        : 0;
-      w[field] = parseFloat((w[field] + markupAmount).toFixed(2));
-    }
-  });
+      // 1️⃣ Apply markup to allowed fields
+      fieldsToMarkup.forEach((field) => {
+        if (typeof w[field] === "number" && w[field] > 0) {
+          const markupAmount = planMarkupPercent
+            ? w[field] * (planMarkupPercent / 100)
+            : 0;
+          w[field] = parseFloat((w[field] + markupAmount).toFixed(2));
+        }
+      });
 
-  // 2️⃣ total = sum of allowed fields only
-  const newTotal = fieldsToMarkup.reduce((sum, field) => {
-    if (typeof w[field] === "number") sum += w[field];
-    return sum;
-  }, 0);
+      // 2️⃣ total = sum of allowed fields only
+      const newTotal = fieldsToMarkup.reduce((sum, field) => {
+        if (typeof w[field] === "number") sum += w[field];
+        return sum;
+      }, 0);
 
-  w.total = parseFloat(newTotal.toFixed(2));
+      w.total = parseFloat(newTotal.toFixed(2));
 
-  // 3️⃣ grand_total = total + gst
-  const gst = typeof w.gst === "number" ? w.gst : 0;
-  w.grand_total = parseFloat((newTotal + gst).toFixed(2));
-};
-
+      // 3️⃣ grand_total = total + gst
+      const gst = typeof w.gst === "number" ? w.gst : 0;
+      w.grand_total = parseFloat((newTotal + gst).toFixed(2));
+    };
 
     // Apply markup on relevant services if present
-    applyPlanMarkup(response.data["Smart Cargo Advantage-surface"], planMarkupPercent);
-    applyPlanMarkup(response.data["Smart Cargo Advantage-air"], planMarkupPercent);
+    applyPlanMarkup(
+      response.data["Smart Cargo Advantage-surface"],
+      planMarkupPercent
+    );
+    applyPlanMarkup(
+      response.data["Smart Cargo Advantage-air"],
+      planMarkupPercent
+    );
 
     // Build updated rates array to send frontend
     const updatedRates = [];
@@ -575,11 +653,15 @@ const applyPlanMarkup = (service, planMarkupPercent) => {
       updatedRates.push({
         provider: "Shiprocket",
         courierServiceName:
-          response.data["Smart Cargo Advantage-surface"].common_name || "Smart Cargo Advantage-surface",
+          response.data["Smart Cargo Advantage-surface"].common_name ||
+          "Smart Cargo Advantage-surface",
         courier:
-          response.data["Smart Cargo Advantage-surface"].delivery_partner || "Smart Cargo",
+          response.data["Smart Cargo Advantage-surface"].delivery_partner ||
+          "Smart Cargo",
         mode: "surface",
-        rate: response.data["Smart Cargo Advantage-surface"].working.grand_total || 0,
+        rate:
+          response.data["Smart Cargo Advantage-surface"].working.grand_total ||
+          0,
         details: response.data["Smart Cargo Advantage-surface"],
       });
     }
@@ -588,16 +670,19 @@ const applyPlanMarkup = (service, planMarkupPercent) => {
       updatedRates.push({
         provider: "Shiprocket",
         courierServiceName:
-          response.data["Smart Cargo Advantage-air"].common_name || "Smart Cargo Advantage-air",
+          response.data["Smart Cargo Advantage-air"].common_name ||
+          "Smart Cargo Advantage-air",
         courier:
-          response.data["Smart Cargo Advantage-air"].delivery_partner || "Smart Cargo",
+          response.data["Smart Cargo Advantage-air"].delivery_partner ||
+          "Smart Cargo",
         mode: "air",
-        rate: response.data["Smart Cargo Advantage-air"].working.grand_total || 0,
+        rate:
+          response.data["Smart Cargo Advantage-air"].working.grand_total || 0,
         details: response.data["Smart Cargo Advantage-air"],
       });
     }
 
-    console.log("Updated Rates:", updatedRates);  
+    console.log("Updated Rates:", updatedRates);
 
     // Send response with applied markup and updated totals
     return res.status(200).json({
@@ -607,7 +692,10 @@ const applyPlanMarkup = (service, planMarkupPercent) => {
       updatedRates,
     });
   } catch (error) {
-    console.error("Error in calculateShiprocketCharges:", error.response?.data || error.message);
+    console.error(
+      "Error in calculateShiprocketCharges:",
+      error.response?.data || error.message
+    );
     return res.status(500).json({
       message: "Failed to calculate Shiprocket charges.",
       error: error.response?.data || error.message,
@@ -620,12 +708,10 @@ const getShiprocketCargoOrderDetails = async (req, res) => {
     const { shipment_id } = req.params;
     const accessToken = await refreshShiprocketCargoToken();
     if (!accessToken) {
-      return res
-        .status(500)
-        .json({
-          success: false,
-          message: "Failed to refresh Shiprocket token",
-        });
+      return res.status(500).json({
+        success: false,
+        message: "Failed to refresh Shiprocket token",
+      });
     }
 
     const response = await axios.get(
@@ -687,10 +773,112 @@ const getShiprocketCargoTracking = async (req, res) => {
   }
 };
 
+const cancelShiprocketOrder = async (req, res) => {
+  try {
+    const { _id, userId } = req.body;
+
+    const accessToken = await refreshShiprocketCargoToken();
+
+    if (!_id || !userId) {
+      return res
+        .status(400)
+        .json({ error: "Order _id and userId are required" });
+    }
+
+    // 1️⃣ Find the user
+    const user = await User.findOne({ _id: userId }).lean();
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    console.log("Found user:", user);
+    // 2️⃣ Find the order
+    const order = await Order.findById(_id);
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+    console.log("Found order:", order);
+    if (!order.orderId) {
+      return res
+        .status(400)
+        .json({ error: "This order does not have a valid Shiprocket orderId" });
+    }
+
+    // 3️⃣ Call Shiprocket Cancel API
+    const cancelPayload = {
+      ids: [order.orderId], // Shiprocket expects array of integers
+    };
+
+    const cancelResponse = await axios.post(
+      "https://apiv2.shiprocket.in/v1/external/orders/cancel",
+      cancelPayload,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+
+    // 4️⃣ If Shiprocket cancellation failed
+    if (!cancelResponse.data || cancelResponse.data.status !== 200) {
+      return res.status(400).json({
+        error: "Failed to cancel shipment with Shiprocket",
+        details: cancelResponse.data || {},
+      });
+    }
+
+    // 5️⃣ Update order & wallet if cancellation successful
+    order.status = "Cancelled";
+    order.tracking.push({
+      title: "Cancelled",
+      descriptions: `Order cancelled by user via Shiprocket API`,
+    });
+    await order.save();
+
+    // Refund wallet
+    const wallet = await Wallet.findById(user.Wallet);
+    const balanceToAdd =
+      order.totalFreightCharges === "N/A"
+        ? 0
+        : parseInt(order.totalFreightCharges);
+
+    await wallet.updateOne({
+      $inc: { balance: balanceToAdd },
+      $push: {
+        transactions: {
+          channelOrderId: order.orderId || null,
+          category: "credit",
+          amount: balanceToAdd,
+          balanceAfterTransaction: wallet.balance + balanceToAdd,
+          date: new Date().toISOString().slice(0, 16).replace("T", " "),
+          awb_number: order.awb_number || "",
+          description: `Freight Charges Received`,
+        },
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Order cancelled successfully with Shiprocket",
+    });
+  } catch (error) {
+    console.error(
+      "Error cancelling Shiprocket order:",
+      error?.response?.data || error
+    );
+    res.status(500).json({
+      error:
+        error?.response?.data?.message ||
+        "Something went wrong while cancelling Shiprocket order",
+    });
+  }
+};
+
 module.exports = {
   createShiprocketCargoOrder,
   calculateShiprocketCargoCharges,
   calculateShiprocketCharges,
   getShiprocketCargoOrderDetails,
   getShiprocketCargoTracking,
+  cancelShiprocketOrder,
 };

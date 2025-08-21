@@ -737,9 +737,7 @@ const updateOrder = async (req, res) => {
       updateFields.packageDetails = {
         deadWeight:
           packageDetails.deadWeight || existingOrder.packageDetails.deadWeight,
-        applicableWeight:
-          packageDetails.applicableWeight ||
-          existingOrder.packageDetails.applicableWeight,
+        
         volumetricWeight: {
           length:
             packageDetails.volumetricWeight?.length ||

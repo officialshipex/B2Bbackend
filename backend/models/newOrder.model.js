@@ -46,7 +46,7 @@ const orderSchema = new mongoose.Schema(
         deadWeight: { type: Number, required: true },
         noOfBox: { type: Number, default: 0 },
         weightPerBox: { type: Number, default: 0 },
-        applicableWeight: { type: Number, required: true },
+        applicableWeight: { type: Number, required: false },
         volumetricWeight: {
           length: { type: Number, required: true },
           width: { type: Number, required: true },
@@ -57,7 +57,7 @@ const orderSchema = new mongoose.Schema(
     ],
     applicableWeight: {
       type: Number,
-      required: true,
+      required: false,
     },
     compositeOrderId: {
       type: String,
@@ -81,6 +81,10 @@ const orderSchema = new mongoose.Schema(
     },
     awb_number: {
       type: String,
+    },
+    child_awb_numbers: {
+      type: [String],
+      default: [],
     },
     label: {
       type: String,
@@ -108,6 +112,13 @@ const orderSchema = new mongoose.Schema(
     COD: { type: String },
     reattempt: { type: Boolean },
     commodityId: { type: Number },
+    deliveryPartner: {
+      name: { type: String },
+      commonName: { type: String },
+      logo: { type: String },
+    },
+    labelUrl: { type: String },
+
     tracking: [
       {
         status: { type: String },
@@ -123,6 +134,6 @@ const orderSchema = new mongoose.Schema(
 // Compound index
 orderSchema.index({ userId: 1, createdAt: -1 });
 
-const Order = mongoose.model('newOrder', orderSchema)
+const Order = mongoose.model("newOrder", orderSchema);
 
 module.exports = Order;
