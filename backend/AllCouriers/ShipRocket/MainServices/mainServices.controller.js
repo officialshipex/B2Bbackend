@@ -144,6 +144,7 @@ const createShiprocketCargoOrder = async (req, res) => {
           date: new Date().toISOString().slice(0, 16).replace("T", " "),
           awb_number: response.data.order_id || "",
           description: "Freight Charges Applied (Cargo)",
+          priceBreakup: req.body.priceBreakup || null
         },
       },
     });

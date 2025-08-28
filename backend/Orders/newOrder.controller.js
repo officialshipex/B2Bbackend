@@ -1258,6 +1258,7 @@ const passbook = async (req, res) => {
           description: "$wallet.transactions.description",
           courierServiceName: 1,
           provider: 1,
+          priceBreakup: "$wallet.transactions.priceBreakup"
         },
       },
       { $sort: { date: -1 } },
