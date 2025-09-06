@@ -4,6 +4,7 @@ const Cod = require("../COD/codRemittance.model");
 const moment = require("moment");
 const User = require("../models/User.model");
 const mongoose = require("mongoose");
+const WeightDispute = require("../WeightDispreancy/weightDispreancy.model");
 
 const dashboard = async (req, res) => {
   try {
@@ -219,6 +220,7 @@ const dashboard = async (req, res) => {
         percentage: Number(percentage), // or keep as string with '%' suffix
       };
     });
+    console.log("ndr", totalNdr);
     return res.status(200).json({
       success: true,
       data: {
@@ -285,12 +287,18 @@ const getBusinessInsights = async (req, res) => {
       .startOf("quarter")
       .toDate();
 
-    let baseMatch = {};
-    if (!isAdminView) {
-      baseMatch.userId = userId;
-    } else if (searchId) {
-      baseMatch.userId = new mongoose.Types.ObjectId(searchId);
-    }
+    const { timeFilter } = req.query;
+const dateRange = getDateRangeForFilter(timeFilter);
+
+let baseMatch = {};
+if (!isAdminView) {
+    baseMatch.userId = userId;
+} else if (searchId) {
+    baseMatch.userId = new mongoose.Types.ObjectId(searchId);
+}
+if (dateRange.start && dateRange.end) {
+    baseMatch.createdAt = { $gte: dateRange.start, $lt: dateRange.end };
+}
 
     const [result] = await Order.aggregate([
       { $match: baseMatch },
@@ -610,15 +618,18 @@ const getDashboardOverview = async (req, res) => {
     // Check if admin and has adminTab access
     const isAdminView = userData?.isAdmin && userData?.adminTab;
 
-    // Determine final user filter
-    let baseMatch = {};
-    if (!isAdminView) {
-      // Normal user: restrict to their own orders
-      baseMatch.userId = userId;
-    } else if (searchId) {
-      // Admin with a selected user
-      baseMatch.userId = new mongoose.Types.ObjectId(searchId);
-    }
+    const { timeFilter } = req.query;
+const dateRange = getDateRangeForFilter(timeFilter);
+
+let baseMatch = {};
+if (!isAdminView) {
+    baseMatch.userId = userId;
+} else if (searchId) {
+    baseMatch.userId = new mongoose.Types.ObjectId(searchId);
+}
+if (dateRange.start && dateRange.end) {
+    baseMatch.createdAt = { $gte: dateRange.start, $lt: dateRange.end };
+}
 
     const today = moment().startOf("day").toDate();
     const yesterday = moment().subtract(1, "day").startOf("day").toDate();
@@ -799,7 +810,11 @@ const getDashboardOverview = async (req, res) => {
       avgShippingData.count > 0
         ? Math.round(avgShippingData.totalFreight / avgShippingData.count)
         : 0;
-
+    const totalNdr =
+      result.actionRequired[0]?.count ||
+      0 + result.actionRequested[0]?.count ||
+      0 + result.ndrDelivered[0]?.count ||
+      0;
     return res.status(200).json({
       success: true,
       data: {
@@ -829,7 +844,7 @@ const getDashboardOverview = async (req, res) => {
 
         // NDR Details
         ndrStats: {
-          totalNdr: result.totalNdr[0]?.count || 0,
+          totalNdr: totalNdr,
           actionRequired: result.actionRequired[0]?.count || 0,
           actionRequested: result.actionRequested[0]?.count || 0,
           ndrDelivered: result.ndrDelivered[0]?.count || 0,
@@ -857,14 +872,18 @@ const getOverviewGraphsData = async (req, res) => {
     const isAdminView = userData?.isAdmin && userData?.adminTab;
 
     // Determine final user filter
-    let baseMatch = {};
-    if (!isAdminView) {
-      // Normal user: restrict to their own orders
-      baseMatch.userId = userId;
-    } else if (searchId) {
-      // Admin with a selected user
-      baseMatch.userId = new mongoose.Types.ObjectId(searchId);
-    }
+    const { timeFilter } = req.query;
+const dateRange = getDateRangeForFilter(timeFilter);
+
+let baseMatch = {};
+if (!isAdminView) {
+    baseMatch.userId = userId;
+} else if (searchId) {
+    baseMatch.userId = new mongoose.Types.ObjectId(searchId);
+}
+if (dateRange.start && dateRange.end) {
+    baseMatch.createdAt = { $gte: dateRange.start, $lt: dateRange.end };
+}
     const last30Days = moment().subtract(30, "days").toDate();
 
     const [result] = await Order.aggregate([
@@ -938,13 +957,16 @@ const getOverviewGraphsData = async (req, res) => {
 
 const getOverviewCardData = async (req, res) => {
   try {
-    const userId = req.user._id;
 
+    
+    const userId = req.user._id;
     const searchId = req.query.userId;
 
     const userData = await User.findById(userId);
     // Check if admin and has adminTab access
     const isAdminView = userData?.isAdmin && userData?.adminTab;
+    const { timeFilter } = req.query;
+    const dateRange = getDateRangeForFilter(timeFilter);
 
     // Determine final user filter
     let baseMatch = {};
@@ -955,6 +977,11 @@ const getOverviewCardData = async (req, res) => {
       // Admin with a selected user
       baseMatch.userId = new mongoose.Types.ObjectId(searchId);
     }
+    if (dateRange.start && dateRange.end) {
+    baseMatch.createdAt = { $gte: dateRange.start, $lt: dateRange.end };
+}
+
+    
 
     const startOfMonth = moment().startOf("month").toDate();
     const startOfWeek = moment().startOf("week").toDate();
@@ -1093,6 +1120,38 @@ const getOverviewCardData = async (req, res) => {
               },
             },
           ],
+
+          // Add weightByCourier aggregation
+          weightByCourier: [
+            {
+              $match: {
+                createdAt: { $gte: last30Days },
+                provider: { $ne: null },
+              },
+            },
+            {
+              $group: {
+                _id: "$provider",
+                weight: {
+                  $sum: {
+                    $ifNull: [
+                      { $arrayElemAt: ["$packageDetails.applicableWeight", 0] },
+                      { $arrayElemAt: ["$packageDetails.deadWeight", 0] },
+                      "$applicableWeight",
+                      0,
+                    ],
+                  },
+                },
+              },
+            },
+            {
+              $project: {
+                courier: "$_id",
+                weight: { $round: ["$weight", 2] },
+                _id: 0,
+              },
+            },
+          ],
         },
       },
     ]);
@@ -1105,6 +1164,7 @@ const getOverviewCardData = async (req, res) => {
       thisWeekRevenue = [],
       thisQuarterRevenue = [],
       weightSplit = [],
+      weightByCourier = [],
     } = result;
 
     const totalOrderCount = totalOrders[0]?.count || 0;
@@ -1131,6 +1191,7 @@ const getOverviewCardData = async (req, res) => {
           thisQuarter: thisQuarterRevenue[0]?.revenue || 0,
         },
         weightSplit: weightSplit, // already has range and count
+        weightByCourier: weightByCourier, // new field for frontend
       },
     });
   } catch (error) {
@@ -1142,6 +1203,33 @@ const getOverviewCardData = async (req, res) => {
     });
   }
 };
+function getDateRangeForFilter(timeFilter) {
+    const today = moment().startOf("day");
+    switch (timeFilter) {
+        case "today":
+            return { start: today.toDate(), end: moment(today).endOf("day").toDate() };
+        case "yesterday":
+            return {
+                start: moment(today).subtract(1, "day").toDate(),
+                end: today.toDate()
+            };
+        case "last7days":
+            return { start: moment(today).subtract(6, "days").toDate(), end: moment(today).endOf("day").toDate() };
+        case "lastweek":
+            return {
+                start: moment(today).subtract(1, "week").startOf("week").toDate(),
+                end: moment(today).subtract(1, "week").endOf("week").toDate()
+            };
+        case "lastmonth":
+            return {
+                start: moment(today).subtract(1, "month").startOf("month").toDate(),
+                end: moment(today).subtract(1, "month").endOf("month").toDate()
+            };
+        case "alltime":
+        default:
+            return {};
+    }
+}
 
 const getOrderSummary = async (req, res) => {
   try {
@@ -1584,6 +1672,198 @@ const getRTOGraphsData = async (req, res) => {
   }
 };
 
+const getCourierComparison = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const searchId = req.query.userId;
+
+    const userData = await User.findById(userId);
+    const isAdminView = userData?.isAdmin && userData?.adminTab;
+
+    let baseMatch = { courierServiceName: { $ne: null } };
+
+    if (!isAdminView) {
+      baseMatch.userId = userId;
+    } else if (searchId) {
+      baseMatch.userId = new mongoose.Types.ObjectId(searchId);
+    }
+
+    const orders = await Order.aggregate([
+      { $match: baseMatch },
+      {
+        $group: {
+          _id: {
+            provider: "$provider",
+            courierServiceName: "$courierServiceName",
+          },
+          shipmentCount: { $sum: 1 },
+          codOrders: {
+            $sum: {
+              $cond: [{ $eq: ["$paymentDetails.method", "COD"] }, 1, 0],
+            },
+          },
+          prepaidOrders: {
+            $sum: {
+              $cond: [{ $eq: ["$paymentDetails.method", "Prepaid"] }, 1, 0],
+            },
+          },
+          delivered: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "Delivered"] }, 1, 0],
+            },
+          },
+          firstAttempt: {
+            $sum: {
+              $cond: [{ $eq: ["$firstAttemptDelivered", true] }, 1, 0],
+            },
+          },
+          ndrDelivered: {
+            $sum: {
+              $cond: [{ $eq: ["$ndrStatus", "Delivered"] }, 1, 0],
+            },
+          },
+          ndrRaised: {
+            $sum: {
+              $cond: [{ $eq: ["$ndrStatus", "Raised"] }, 1, 0],
+            },
+          },
+          rto: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "RTO"] }, 1, 0],
+            },
+          },
+          lostOrDamaged: {
+            $sum: {
+              $cond: [{ $in: ["$status", ["Lost", "Damaged"]] }, 1, 0],
+            },
+          },
+          zoneA: {
+            $sum: {
+              $cond: [{ $eq: ["$zone", "zoneA"] }, 1, 0],
+            },
+          },
+          zoneB: {
+            $sum: {
+              $cond: [{ $eq: ["$zone", "zoneB"] }, 1, 0],
+            },
+          },
+          zoneC: {
+            $sum: {
+              $cond: [{ $eq: ["$zone", "zoneC"] }, 1, 0],
+            },
+          },
+          zoneD: {
+            $sum: {
+              $cond: [{ $eq: ["$zone", "zoneD"] }, 1, 0],
+            },
+          },
+          zoneE: {
+            $sum: {
+              $cond: [{ $eq: ["$zone", "zoneE"] }, 1, 0],
+            },
+          },
+        },
+      },
+      { $sort: { shipmentCount: -1 } }, // 🔥 Sort by shipmentCount descending
+    ]);
+
+    const formatted = orders.map((o) => ({
+      courier: o._id.provider,
+      courierServiceName: o._id.courierServiceName,
+      shipmentCount: o.shipmentCount || "-",
+      codOrders: o.codOrders || "-",
+      prepaidOrders: o.prepaidOrders || "-",
+      delivered: o.delivered || "-",
+      firstAttempt: o.firstAttempt || "-",
+      ndrDelivered: o.ndrDelivered || "-",
+      ndrRaised: o.ndrRaised || "-",
+      rto: o.rto || "-",
+      "Lost/Damaged": o.lostOrDamaged || "-",
+      "Zone A": o.zoneA || 0,
+      "Zone B": o.zoneB || 0,
+      "Zone C": o.zoneC || 0,
+      "Zone D": o.zoneD || 0,
+      "Zone E": o.zoneE || 0,
+    }));
+
+    return res.status(200).json({
+      success: true,
+      data: formatted,
+    });
+  } catch (error) {
+    console.error("Courier Comparison Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+const getWeightDisputeData = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const searchId = req.query.userId;
+
+    const userData = await User.findById(userId);
+    // Check if admin and has adminTab access
+    const isAdminView = userData?.isAdmin && userData?.adminTab;
+
+    // Determine filter
+    let baseMatch = {};
+    if (!isAdminView) {
+      // Normal user → only their disputes
+      baseMatch.userId = userId;
+    } else if (searchId) {
+      // Admin with a selected user → that user's disputes
+      baseMatch.userId = new mongoose.Types.ObjectId(searchId);
+    }
+
+    // Fetch disputes based on filter
+    const allDisputes = await WeightDispute.find(baseMatch)
+      .populate("orderId")
+      .populate("userId")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    if (!allDisputes || allDisputes.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No weight disputes found.",
+        data: [],
+        counts: { New: 0, Accepted: 0, "Discrepancy Raised": 0 },
+      });
+    }
+
+    // Count by status (only New, Accepted, Discrepancy Raised)
+    const counts = allDisputes.reduce(
+      (acc, dispute) => {
+        const status = dispute.status || "Unknown";
+        if (status === "new") acc.New++;
+        else if (status === "Accepted") acc.Accepted++;
+        else if (status === "Discrepancy Raised") acc["DiscrepancyRaised"]++;
+        return acc;
+      },
+      { New: 0, Accepted: 0, "DiscrepancyRaised": 0 }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Weight dispute data retrieved successfully.",
+      total: allDisputes.length,
+      counts,
+      data: allDisputes,
+    });
+  } catch (error) {
+    console.error("Error fetching weight dispute data:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while retrieving weight dispute data.",
+      error: error.message,
+    });
+  }
+};
+
 
 module.exports = {
   dashboard,
@@ -1594,5 +1874,7 @@ module.exports = {
   getOrderSummary,
   getOrdersGraphsData,
   getRTOSummaryData,
-  getRTOGraphsData
+  getRTOGraphsData,
+  getCourierComparison,
+  getWeightDisputeData,
 };
