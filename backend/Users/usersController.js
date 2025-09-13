@@ -100,10 +100,18 @@ const getAllUsers = async (req, res) => {
     if (id && id.trim() !== "") {
       // If you want to fetch using MongoDB's ObjectId
       query._id = new mongoose.Types.ObjectId(id.trim());
-    } else if (userId && userId.trim() !== "") {
-      // If you want to fetch by userId (6-digit number)
-      query.userId = Number(userId.trim()); // 👈 Cast to Number
-    } else if (search && search.trim() !== "") {
+    }else if (userId && userId.trim() !== "") {
+  // If userId is a valid ObjectId, query by _id
+  if (mongoose.Types.ObjectId.isValid(userId.trim())) {
+    query._id = new mongoose.Types.ObjectId(userId.trim());
+  } else if (!isNaN(userId.trim())) {
+    // If userId is a number, query by userId
+    query.userId = Number(userId.trim());
+  } else {
+    // fallback: search as string
+    query.userId = userId.trim();
+  }
+} else if (search && search.trim() !== "") {
       const trimmedSearch = search.trim();
       query.$or = [
         { userId: { $regex: trimmedSearch, $options: "i" } }, // Keep this if userId is searchable as a string
@@ -173,23 +181,23 @@ const getAllUsers = async (req, res) => {
 
     // console.log("Fetched users:", users.length);
 
-    const userIds = users.map((u) => u._id);
+    const userIds = users.map(u => u._id); 
 
     const [plans, codPlans, accounts, aadhars, pans, gsts] = await Promise.all([
-      Plan.find({ userId: { $in: userIds } }).lean(),
-      CodPlans.find({ user: { $in: userIds } }).lean(),
+      // Plan.find({ userId: { $in: userIds } }).lean(),
+      // CodPlans.find({ user: { $in: userIds } }).lean(),
       Account.find({ user: { $in: userIds } }).lean(),
       Aadhar.find({ user: { $in: userIds } }).lean(),
       Pan.find({ user: { $in: userIds } }).lean(),
       Gst.find({ user: { $in: userIds } }).lean(),
     ]);
 
-    const planMap = new Map(plans.map((p) => [String(p.userId), p]));
-    const codMap = new Map(codPlans.map((p) => [String(p.user), p]));
-    const accountMap = new Map(accounts.map((a) => [String(a.user), a]));
-    const aadharMap = new Map(aadhars.map((a) => [String(a.user), a]));
-    const panMap = new Map(pans.map((p) => [String(p.user), p]));
-    const gstMap = new Map(gsts.map((g) => [String(g.user), g]));
+    // const planMap = new Map(plans.map((p) => [String(p.userId), p]));
+    // const codMap = new Map(codPlans.map((p) => [String(p.user), p]));
+    const accountMap = new Map((accounts || []).map((a) => [String(a.user), a]));
+    const aadharMap = new Map((aadhars || []).map((a) => [String(a.user), a]));
+    const panMap = new Map((pans || []).map((p) => [String(p.user), p]));
+    const gstMap = new Map((gsts || []).map((g) => [String(g.user), g]));
 
     // Filter by wallet balance & rate card if applied
     const filteredUsers = users.filter((user) => {
@@ -198,13 +206,13 @@ const getAllUsers = async (req, res) => {
       if (balanceType === "positive" && walletBalance < 0) return false;
       if (balanceType === "negative" && walletBalance >= 0) return false;
 
-      const plan = planMap.get(String(user._id));
-      if (
-        rateCard &&
-        plan?.planName?.toLowerCase() !== rateCard.toLowerCase()
-      ) {
-        return false;
-      }
+      // const plan = planMap.get(String(user._id));
+      // if (
+      //   rateCard &&
+      //   plan?.planName?.toLowerCase() !== rateCard.toLowerCase()
+      // ) {
+      //   return false;
+      // }
 
       return true;
     });
@@ -218,7 +226,7 @@ const getAllUsers = async (req, res) => {
 
     const userDetails = paginatedUsers.map((user) => {
       const walletBalance = user.Wallet?.balance || 0;
-      const plan = planMap.get(String(user._id));
+      // const plan = planMap.get(String(user._id));
 
       return {
         id: user._id,
@@ -230,8 +238,8 @@ const getAllUsers = async (req, res) => {
         kycStatus: user.kycDone,
         walletAmount: walletBalance,
         creditLimit: user.creditLimit || 0,
-        rateCard: plan?.planName || "N/A",
-        codPlan: codMap.get(String(user._id))?.planName || "N/A",
+        // rateCard: plan?.planName || "N/A",
+        // codPlan: codMap.get(String(user._id))?.planName || "N/A",
         createdAt: user.createdAt,
         accountDetails: (() => {
           const acc = accountMap.get(String(user._id));

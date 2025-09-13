@@ -62,8 +62,12 @@ const newOrder = async (req, res) => {
       const weight = Number(pkg.applicableWeight) || 0;
       return sum + weight;
     }, 0);
-
+       const totalPackages = packageDetails.reduce(
+      (sum, pkg) => sum + (Number(pkg.noOfBox) || 0),
+      0
+    );
     console.log("Total Applicable Weight:", totalApplicableWeight);
+    console.log("Total Packages:", totalPackages);
 
     // Validate required fields
     if (
@@ -115,7 +119,10 @@ const newOrder = async (req, res) => {
       orderId,
       pickupAddress,
       receiverAddress,
-      productDetails,
+      productDetails: productDetails.map((prod, idx) => ({
+        ...prod,
+        totalPackages,
+      })),
       packageDetails,
       applicableWeight: totalApplicableWeight,
       paymentDetails,

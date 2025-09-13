@@ -10,6 +10,7 @@ const Plan = require("../../../models/Plan.model");
 const createShiprocketCargoOrder = async (req, res) => {
   try {
     const { id, provider, finalCharges, courierServiceName } = req.body;
+    
 
     // Fetch order, user, and wallet
     const currentOrder = await Order.findById(id);
@@ -40,20 +41,15 @@ const createShiprocketCargoOrder = async (req, res) => {
       });
     }
 
-    const totalUnits = currentOrder.packageDetails.reduce((sum, product) => {
-      return sum + (product.noOfBox || 0);
-    }, 0);
+const totalUnits = currentOrder.packageDetails.reduce((sum, product) => {
+  return sum + (product.noOfBox || 0);
+}, 0);
 
-    const productQuantity = currentOrder.productDetails.reduce((sum, prod) => {
-      return sum + (prod.quantity || 0);
-    }, 0);
 
-    console.log("Total units in package details:", totalUnits);
-    console.log("Total quantity in productDetails:", productQuantity);
 
     // Build the order creation payload
     const payload = {
-      no_of_packages: currentOrder.productDetails.length,
+      no_of_packages: totalUnits,
       approx_weight: currentOrder.applicableWeight.toString(),
       is_insured: false,
       is_to_pay: false,
@@ -103,6 +99,7 @@ const createShiprocketCargoOrder = async (req, res) => {
       po_expiry_date: null,
       is_appointment_taken: false,
     };
+    console.log("Shiprocket Cargo Order Payload:", payload);
 
     // 1. Create the Shiprocket cargo order
     const response = await axios.post(
@@ -339,15 +336,20 @@ const calculateShiprocketCargoCharges = async (req, res) => {
         .json({ message: "Failed to refresh access token" });
     }
 
-    // 4. Prepare payload
-    const firstPackage =
-      order.packageDetails && order.packageDetails.length > 0
-        ? order.packageDetails[0]
-        : null;
+    // 4. Prepare packaging_unit_details with all packageDetails array data
+    const packaging_unit_details = order.packageDetails.map((detail) => {
+      const dims = detail.volumetricWeight || {};
+      return {
+        units: detail.noOfBox || 1,
+        length: dims.length || 10,
+        height: dims.height || 10,
+        width: dims.width || 10,
+        weight: detail.applicableWeight || order.applicableWeight || 1,
+        unit: "cm",
+      };
+    });
 
-    const dimensions = firstPackage?.volumetricWeight || {};
-    const product = order.productDetails[0]; // assuming single product
-
+    // 5. Prepare payload
     const payload = {
       from_pincode: order.pickupAddress.pinCode,
       from_city: order.pickupAddress.city,
@@ -355,22 +357,15 @@ const calculateShiprocketCargoCharges = async (req, res) => {
       to_pincode: order.receiverAddress.pinCode,
       to_city: order.receiverAddress.city,
       to_state: order.receiverAddress.state,
-      quantity: product.quantity,
+      quantity: order.productDetails[0]?.totalPackages,
       invoice_value: order.paymentDetails.amount,
       calculator_page: "true",
-      packaging_unit_details: [
-        {
-          units: product.noOfBox || 1,
-          length: dimensions.length || 10,
-          height: dimensions.height || 10,
-          width: dimensions.width || 10,
-          weight: order.applicableWeight || 1,
-          unit: "cm",
-        },
-      ],
+      packaging_unit_details, // This includes all packageDetails
     };
 
-    // 5. Call Shiprocket Cargo API
+    console.log("Shiprocket Cargo Charges Payload:", payload);
+
+    // 6. Call Shiprocket Cargo API
     const response = await axios.post(
       "https://api-cargo.shiprocket.in/api/shipment/charges/",
       payload,
@@ -384,7 +379,7 @@ const calculateShiprocketCargoCharges = async (req, res) => {
 
     console.log("Shiprocket Cargo Charges:", response.data);
 
-    // 6. Fields that should get markup
+    // 7. Fields that should get markup
     const fieldsToMarkup = [
       "rate",
       "freight",
@@ -397,7 +392,7 @@ const calculateShiprocketCargoCharges = async (req, res) => {
       "fm_charges",
     ];
 
-    // 7. Function to apply markup exactly like in calculateShiprocketCharges
+    // 8. Function to apply markup exactly like in calculateShiprocketCharges
     const applyPlanMarkup = (service, planMarkupPercent) => {
       if (!service || !service.working) return;
 
@@ -426,17 +421,14 @@ const calculateShiprocketCargoCharges = async (req, res) => {
       w.grand_total = parseFloat((newTotal + gst).toFixed(2));
     };
 
-    // 8. Apply markup to both surface and air if available
+    // 9. Apply markup to both surface and air if available
     applyPlanMarkup(
       response.data["Smart Cargo Advantage-surface"],
       planMarkupPercent
     );
-    applyPlanMarkup(
-      response.data["Smart Cargo Advantage-air"],
-      planMarkupPercent
-    );
+    applyPlanMarkup(response.data["Smart Cargo Advantage-air"], planMarkupPercent);
 
-    // 9. Prepare updated rates array
+    // 10. Prepare updated rates array
     const updatedRates = [];
     if (response.data["Smart Cargo Advantage-surface"]) {
       updatedRates.push({
@@ -469,8 +461,10 @@ const calculateShiprocketCargoCharges = async (req, res) => {
         details: response.data["Smart Cargo Advantage-air"],
       });
     }
+
     console.log("Updated Rates:", updatedRates);
-    // 10. Send unified response
+
+    // 11. Send unified response
     res.status(200).json({
       message: `Charges fetched successfully (${planMarkupPercent}% plan markup applied)`,
       plan: userPlan || null,
@@ -510,7 +504,7 @@ const calculateShiprocketCharges = async (req, res) => {
       length,
       width: breadth,
       height,
-      quantity,
+      
       declaredValue,
       from_city,
       from_state,
@@ -568,7 +562,7 @@ const calculateShiprocketCharges = async (req, res) => {
       to_pincode: deliveryPincode,
       to_city,
       to_state,
-      quantity: quantity || noOfBox || 1,
+      quantity:  noOfBox || 1,
       invoice_value: declaredValue || 0,
       calculator_page: "true",
       packaging_unit_details: [
@@ -725,9 +719,25 @@ const getShiprocketCargoOrderDetails = async (req, res) => {
       }
     );
     console.log("Shiprocket get_shipment response:", response.data);
+        
+          const waybill = response.data.waybill_no;
+          const childWaybill = response.data.child_waybill_nos;
+          
+
+          
+          const orderToUpdate = await Order.findById(id);
+          if (orderToUpdate) {
+            orderToUpdate.awb_number = waybill;
+            orderToUpdate.child_awb_numbers = childWaybill || [];
+            
+
+            await orderToUpdate.save();
+            console.log(
+              `Waybill_no updated for order ${orderToUpdate.orderId}: ${waybill}`
+            );
 
     return res.status(200).json({ success: true, data: response.data });
-  } catch (error) {
+  }} catch (error) {
     console.log(
       "Error in getShiprocketCargoOrderDetails:",
       error?.response?.data || error.message

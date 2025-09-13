@@ -35,7 +35,7 @@ const orderSchema = new mongoose.Schema(
     productDetails: [
       {
         id: { type: Number, required: true },
-        quantity: { type: Number, required: true },
+        totalPackages: { type: Number, required: true },
         name: { type: String, required: true },
         sku: { type: String },
         unitPrice: { type: String, required: true },
