@@ -10,7 +10,7 @@ const Plan = require("../../../models/Plan.model");
 const createShiprocketCargoOrder = async (req, res) => {
   try {
     const { id, provider, finalCharges, courierServiceName } = req.body;
-    
+
 
     // Fetch order, user, and wallet
     const currentOrder = await Order.findById(id);
@@ -279,7 +279,7 @@ const totalUnits = currentOrder.packageDetails.reduce((sum, product) => {
           err.message
         );
       }
-    }, 30000); // 30 seconds delay
+    }, 60000); // 60 seconds delay
   } catch (error) {
     console.error(
       "Error in createShiprocketCargoOrder:",
